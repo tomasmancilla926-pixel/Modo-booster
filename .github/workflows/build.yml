@@ -1,0 +1,348 @@
+name: Build APK Modo Juego
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Crear proyecto Android
+        run: |
+          mkdir -p "$(dirname 'settings.gradle.kts')"
+          cat > 'settings.gradle.kts' <<'MODOJUEGO_EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "ModoJuego"
+          include(":app")
+          MODOJUEGO_EOF
+          mkdir -p "$(dirname 'build.gradle.kts')"
+          cat > 'build.gradle.kts' <<'MODOJUEGO_EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          MODOJUEGO_EOF
+          mkdir -p "$(dirname 'gradle.properties')"
+          cat > 'gradle.properties' <<'MODOJUEGO_EOF'
+          org.gradle.jvmargs=-Xmx2g
+          android.useAndroidX=true
+          MODOJUEGO_EOF
+          mkdir -p "$(dirname 'app/build.gradle.kts')"
+          cat > 'app/build.gradle.kts' <<'MODOJUEGO_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "cl.modojuego"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "cl.modojuego"
+                  minSdk = 29
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("dev.rikka.shizuku:api:13.1.5")
+              implementation("dev.rikka.shizuku:provider:13.1.5")
+          }
+          MODOJUEGO_EOF
+          mkdir -p "$(dirname 'app/src/main/AndroidManifest.xml')"
+          cat > 'app/src/main/AndroidManifest.xml' <<'MODOJUEGO_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <queries>
+                  <package android:name="moe.shizuku.privileged.api" />
+                  <package android:name="com.dts.freefireth" />
+                  <package android:name="com.dts.freefiremax" />
+                  <package android:name="com.mojang.minecraftpe" />
+                  <package android:name="com.roblox.client" />
+              </queries>
+
+              <application
+                  android:label="Modo Juego"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <provider
+                      android:name="rikka.shizuku.ShizukuProvider"
+                      android:authorities="${applicationId}.shizuku"
+                      android:enabled="true"
+                      android:exported="true"
+                      android:multiprocess="false"
+                      android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+              </application>
+          </manifest>
+          MODOJUEGO_EOF
+          mkdir -p "$(dirname 'app/src/main/java/cl/modojuego/MainActivity.kt')"
+          cat > 'app/src/main/java/cl/modojuego/MainActivity.kt' <<'MODOJUEGO_EOF'
+          package cl.modojuego
+
+          import android.app.Activity
+          import android.content.pm.PackageManager
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.os.Bundle
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+          import rikka.shizuku.Shizuku
+
+          class MainActivity : Activity() {
+
+              private val games = listOf(
+                  "Free Fire" to "com.dts.freefireth",
+                  "Free Fire MAX" to "com.dts.freefiremax",
+                  "Minecraft" to "com.mojang.minecraftpe",
+                  "Roblox" to "com.roblox.client"
+              )
+              private val reqCode = 4242
+              private lateinit var status: TextView
+              private lateinit var log: TextView
+
+              private val permListener = Shizuku.OnRequestPermissionResultListener { code, result ->
+                  if (code == reqCode) {
+                      runOnUiThread {
+                          say(if (result == PackageManager.PERMISSION_GRANTED) "Permiso dado ✔" else "Permiso rechazado")
+                          refresh()
+                      }
+                  }
+              }
+              private val binderListener = Shizuku.OnBinderReceivedListener {
+                  runOnUiThread { refresh() }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  val root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(20), dp(36), dp(20), dp(24))
+                  }
+                  setContentView(ScrollView(this).apply {
+                      setBackgroundColor(Color.parseColor("#121212"))
+                      addView(root)
+                  })
+
+                  root.addView(tv("Modo Juego", 30f).apply { setTypeface(typeface, Typeface.BOLD) })
+                  root.addView(tv("Free Fire · Minecraft · Roblox", 14f, Color.parseColor("#B0B0B0")))
+                  status = tv("", 16f, Color.parseColor("#FFD54F"))
+                  root.addView(status)
+
+                  root.addView(btn("1. Abrir Shizuku") { openShizuku() })
+                  root.addView(btn("2. Dar permiso a esta app") { askPermission() })
+                  root.addView(btn("ACTIVAR MODO JUEGO") { activate() })
+                  root.addView(btn("Restaurar ajustes normales") { restore() })
+
+                  root.addView(tv("Abrir juego", 14f, Color.parseColor("#B0B0B0")))
+                  for ((name, pkg) in games) {
+                      root.addView(btn(name) { openGame(name, pkg) })
+                  }
+
+                  log = tv("", 14f)
+                  root.addView(log)
+
+                  Shizuku.addRequestPermissionResultListener(permListener)
+                  Shizuku.addBinderReceivedListener(binderListener)
+                  refresh()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  refresh()
+              }
+
+              override fun onDestroy() {
+                  Shizuku.removeRequestPermissionResultListener(permListener)
+                  Shizuku.removeBinderReceivedListener(binderListener)
+                  super.onDestroy()
+              }
+
+              // ---------- UI helpers ----------
+
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              private fun tv(t: String, size: Float, color: Int = Color.WHITE) = TextView(this).apply {
+                  text = t
+                  textSize = size
+                  setTextColor(color)
+                  setPadding(0, dp(6), 0, dp(6))
+              }
+
+              private fun btn(t: String, onClick: () -> Unit) = Button(this).apply {
+                  text = t
+                  isAllCaps = false
+                  setOnClickListener { onClick() }
+              }
+
+              private fun say(msg: String) {
+                  log.text = msg
+              }
+
+              private fun refresh() {
+                  status.text = when {
+                      !alive() -> "● Shizuku no está activo (paso 1)"
+                      !granted() -> "● Falta dar permiso a esta app (paso 2)"
+                      else -> "● Listo para usar"
+                  }
+              }
+
+              // ---------- Shizuku ----------
+
+              private fun alive() = try {
+                  Shizuku.pingBinder()
+              } catch (e: Throwable) {
+                  false
+              }
+
+              private fun granted() = try {
+                  Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+              } catch (e: Throwable) {
+                  false
+              }
+
+              private fun openShizuku() {
+                  val i = packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+                  if (i == null) {
+                      say("Instala Shizuku desde Play Store y vuelve aquí.")
+                  } else {
+                      startActivity(i)
+                  }
+              }
+
+              private fun askPermission() {
+                  try {
+                      when {
+                          !alive() -> say("Shizuku no está activo. Ábrelo y pulsa Iniciar (depuración inalámbrica).")
+                          granted() -> say("Ya tienes el permiso ✔")
+                          else -> Shizuku.requestPermission(reqCode)
+                      }
+                  } catch (e: Throwable) {
+                      say("Error: ${e.message}")
+                  }
+              }
+
+              /** Ejecuta un comando de shell con permisos de Shizuku (uid shell). */
+              private fun exec(cmd: String): String {
+                  val m = Shizuku::class.java.getDeclaredMethod(
+                      "newProcess",
+                      Array<String>::class.java,
+                      Array<String>::class.java,
+                      String::class.java
+                  )
+                  m.isAccessible = true
+                  val p = m.invoke(null, arrayOf("sh", "-c", cmd), null, null) as Process
+                  val out = p.inputStream.bufferedReader().readText()
+                  val err = p.errorStream.bufferedReader().readText()
+                  p.waitFor()
+                  return (out + err).trim()
+              }
+
+              private fun runScript(title: String, script: String) {
+                  if (!granted()) {
+                      say("Primero haz los pasos 1 y 2.")
+                      return
+                  }
+                  say("$title…")
+                  Thread {
+                      val result = try {
+                          exec(script)
+                      } catch (e: Throwable) {
+                          "Error: ${e.message}"
+                      }
+                      runOnUiThread { say(result.ifBlank { "Listo ✔" }) }
+                  }.start()
+              }
+
+              // ---------- Acciones ----------
+
+              private fun pkgs() = games.joinToString(" ") { it.second }
+
+              private fun activate() {
+                  val script = listOf(
+                      "am kill-all",
+                      "for p in ${pkgs()}; do",
+                      "  if pm path \$p >/dev/null 2>&1; then",
+                      "    cmd game set --mode performance --user 0 \$p >/dev/null 2>&1 || cmd game mode performance \$p >/dev/null 2>&1",
+                      "    echo \"✔ \$p en modo rendimiento\"",
+                      "  fi",
+                      "done",
+                      "echo \"✔ Apps en segundo plano cerradas\""
+                  ).joinToString("\n")
+                  runScript("Activando", script)
+              }
+
+              private fun restore() {
+                  val script = listOf(
+                      "for p in ${pkgs()}; do",
+                      "  if pm path \$p >/dev/null 2>&1; then",
+                      "    cmd game set --mode standard --user 0 \$p >/dev/null 2>&1 || cmd game mode standard \$p >/dev/null 2>&1",
+                      "  fi",
+                      "done",
+                      "echo \"✔ Todo vuelto a normal\""
+                  ).joinToString("\n")
+                  runScript("Restaurando", script)
+              }
+
+              private fun openGame(name: String, pkg: String) {
+                  val i = packageManager.getLaunchIntentForPackage(pkg)
+                  if (i == null) say("$name no está instalado.") else startActivity(i)
+              }
+          }
+          MODOJUEGO_EOF
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Compilar APK
+        run: gradle assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ModoJuego-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
